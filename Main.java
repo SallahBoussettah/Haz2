@@ -19,6 +19,7 @@ public class Main {
     private static boolean isAnimating = false;
     private static javax.swing.Timer aiTimer;
     private static boolean hasShownCard2Rule = false;
+    private static SoundManager soundManager;
     
     // Constants for card dimensions and positions
     private static final int CARD_WIDTH = 100;
@@ -37,6 +38,9 @@ public class Main {
         } catch (Exception e) {
             e.printStackTrace();
         }
+        
+        // Initialize sound manager
+        soundManager = SoundManager.getInstance();
         
         SwingUtilities.invokeLater(() -> {
             showStartMenu();
@@ -221,10 +225,29 @@ public class Main {
             playerNames.add("AI"); // Placeholder, will be replaced with AIPlayer
             
             menuFrame.dispose();
+            
+            // Remove start sound from here
+            
             startGame(true);
         });
         
         mainPanel.add(startButton);
+        
+        // Add sound toggle checkbox
+        JCheckBox soundToggle = new JCheckBox("Enable Sound", true);
+        soundToggle.setForeground(Color.WHITE);
+        soundToggle.setOpaque(false);
+        soundToggle.setAlignmentX(Component.CENTER_ALIGNMENT);
+        soundToggle.addActionListener(e -> {
+            boolean enabled = soundToggle.isSelected();
+            soundManager.setSoundEnabled(enabled);
+            
+            // Play start audio when toggling sound ON
+            if (enabled) {
+                soundManager.playSound(SoundManager.SOUND_START);
+            }
+        });
+        mainPanel.add(soundToggle);
         
         menuFrame.add(mainPanel);
         menuFrame.setVisible(true);
@@ -328,6 +351,13 @@ public class Main {
                 // Don't allow clicking the deck if it's AI's turn
                 if (isAI) {
                     return;
+                }
+                
+                // Play appropriate sound based on whether we're drawing due to a card 2
+                if (game.mustDrawCards() && game.getAccumulatedDrawCards() > 0) {
+                    soundManager.playSound(SoundManager.SOUND_HAZZ);
+                } else {
+                    soundManager.playSound(SoundManager.SOUND_DRAW_CARD);
                 }
                 
                 // Create animation for drawing a card
@@ -440,6 +470,22 @@ public class Main {
         });
         gamePane.add(helpButton, JLayeredPane.DRAG_LAYER);
 
+        // Add a sound toggle button
+        JToggleButton soundToggle = new JToggleButton("Sound: ON");
+        soundToggle.setBounds(140, 650, 120, 30);
+        soundToggle.setSelected(true);
+        soundToggle.addActionListener(e -> {
+            boolean enabled = soundToggle.isSelected();
+            soundManager.setSoundEnabled(enabled);
+            soundToggle.setText("Sound: " + (enabled ? "ON" : "OFF"));
+            
+            // Play start audio when toggling sound ON
+            if (enabled) {
+                soundManager.playSound(SoundManager.SOUND_START);
+            }
+        });
+        gamePane.add(soundToggle, JLayeredPane.DRAG_LAYER);
+
         frame.add(gamePane);
         
         // Add a resize listener to update components
@@ -517,6 +563,11 @@ public class Main {
                     button.setBounds(10, height - 50, 120, 30);
                 } else if ("Game Rules".equals(button.getText())) {
                     button.setBounds(10, height - 90, 120, 30);
+                }
+            } else if (comp instanceof JToggleButton) {
+                JToggleButton toggleButton = (JToggleButton) comp;
+                if (toggleButton.getText().startsWith("Sound:")) {
+                    toggleButton.setBounds(140, height - 50, 120, 30);
                 }
             }
         }
@@ -613,6 +664,8 @@ public class Main {
                                 public void mouseEntered(MouseEvent e) {
                                     cardLabel.setBorder(BorderFactory.createLineBorder(Color.YELLOW, 2));
                                     cardLabel.setLocation(cardLabel.getX(), cardLabel.getY() - 20);
+                                    
+                                    // Remove the sound from hover event
                                 }
                                 
                                 @Override
@@ -625,6 +678,9 @@ public class Main {
                                 public void mouseClicked(MouseEvent e) {
                                     if (isAnimating) return;
                                     if (card.canBePlayedOn(game.getTopCard(), game.getForcedSuit())) {
+                                        // Play select card sound when clicking a valid card
+                                        soundManager.playSound(SoundManager.SOUND_SELECT_CARD);
+                                        
                                         // Create animation for playing a card
                                         isAnimating = true;
                                         
@@ -649,10 +705,16 @@ public class Main {
                                                 game.playCard(card);
                                                 topCardLabel.setIcon(loadImage(game.getTopCard().getImagePath(), CARD_WIDTH, CARD_HEIGHT));
                                                 
+                                                // Play card sound after the animation completes and card is placed
+                                                soundManager.playSound(SoundManager.SOUND_PLAY_CARD);
+                                                
                                                 // Handle wild card (7)
                                                 if (card.getValue() == 7 && !player.getHand().isEmpty()) {
                                                     Card.Suit selectedSuit = promptSuitChoice();
                                                     if (selectedSuit != null) {
+                                                        // Play type change sound
+                                                        soundManager.playSound(SoundManager.SOUND_TYPE_CHANGE);
+                                                        
                                                         game.setForcedSuit(selectedSuit);
                                                         
                                                         // Update suit type display
@@ -673,7 +735,8 @@ public class Main {
                                             }
                                         );
                                     } else {
-                                        JOptionPane.showMessageDialog(frame, "You can't play that card!", "Invalid Move", JOptionPane.WARNING_MESSAGE);
+                                        // Play error sound instead of showing warning
+                                        soundManager.playSound(SoundManager.SOUND_ERROR);
                                     }
                                 }
                             });
@@ -708,6 +771,9 @@ public class Main {
                     "You must draw " + game.getAccumulatedDrawCards() + " cards!", 
                     "Draw Cards", 
                     JOptionPane.INFORMATION_MESSAGE);
+                
+                // Play hazz sound for drawing multiple cards
+                soundManager.playSound(SoundManager.SOUND_HAZZ);
                 
                 // Create animation for drawing cards
                 isAnimating = true;
@@ -779,6 +845,9 @@ public class Main {
                     // AI must draw cards
                     isAnimating = true;
                     
+                    // Play hazz sound for drawing multiple cards
+                    soundManager.playSound(SoundManager.SOUND_HAZZ);
+                    
                     // Create a temporary card for animation
                     JLabel tempCard = new JLabel(loadImage("Hez/empty.png", CARD_WIDTH, CARD_HEIGHT));
                     tempCard.setSize(CARD_WIDTH, CARD_HEIGHT);
@@ -819,6 +888,9 @@ public class Main {
                     // AI has a card to play
                     isAnimating = true;
                     
+                    // Play select card sound
+                    soundManager.playSound(SoundManager.SOUND_SELECT_CARD);
+                    
                     // Create a temporary card for animation
                     JLabel tempCard = new JLabel(loadImage(cardToPlay.getImagePath(), CARD_WIDTH, CARD_HEIGHT));
                     tempCard.setSize(CARD_WIDTH, CARD_HEIGHT);
@@ -835,10 +907,16 @@ public class Main {
                             game.playCard(cardToPlay);
                             topCardLabel.setIcon(loadImage(game.getTopCard().getImagePath(), CARD_WIDTH, CARD_HEIGHT));
                             
+                            // Play card sound after the animation completes and card is placed
+                            soundManager.playSound(SoundManager.SOUND_PLAY_CARD);
+                            
                             // Handle wild card (7)
                             if (cardToPlay.getValue() == 7 && !ai.getHand().isEmpty()) {
                                 Card.Suit selectedSuit = game.getAISuitChoice();
                                 if (selectedSuit != null) {
+                                    // Play type change sound
+                                    soundManager.playSound(SoundManager.SOUND_TYPE_CHANGE);
+                                    
                                     game.setForcedSuit(selectedSuit);
                                     
                                     // Update suit type display
@@ -868,6 +946,13 @@ public class Main {
                 } else {
                     // AI needs to draw a card
                     isAnimating = true;
+                    
+                    // Play appropriate sound based on whether we're drawing due to a card 2
+                    if (game.mustDrawCards() && game.getAccumulatedDrawCards() > 0) {
+                        soundManager.playSound(SoundManager.SOUND_HAZZ);
+                    } else {
+                        soundManager.playSound(SoundManager.SOUND_DRAW_CARD);
+                    }
                     
                     // Create a temporary card for animation
                     JLabel tempCard = new JLabel(loadImage("Hez/empty.png", CARD_WIDTH, CARD_HEIGHT));
@@ -910,6 +995,14 @@ public class Main {
     private static void checkGameOver() {
         if (game.isGameOver()) {
             Player winner = game.getWinner();
+            
+            // Play win/lose sound based on who won
+            if (winner instanceof AIPlayer) {
+                soundManager.playSound(SoundManager.SOUND_LOSE);
+            } else {
+                soundManager.playSound(SoundManager.SOUND_WIN);
+            }
+            
             JOptionPane.showMessageDialog(frame, 
                 winner.getName() + " wins the game!", 
                 "Game Over", 
