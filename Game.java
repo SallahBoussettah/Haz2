@@ -62,6 +62,10 @@ public class Game {
             return topCard;
         }
 
+        public void setTopCard(Card card) {
+            this.topCard = card;
+        }
+
         public List<Player> getPlayers() {
             return players;
         }
@@ -91,6 +95,66 @@ public class Game {
             player.playCard(card);
             topCard = card;
 
+            // Special card logic
+            boolean shouldAdvanceTurn = true;
+
+            switch (card.getValue()) {
+                case 1:
+                    // Card 1: Skip next player's turn, but they can play if they also have a card 1
+                    Player nextPlayer = getNextPlayer();
+                    
+                    // Check if next player has a card 1 to play
+                    if (!nextPlayerHasCardOne()) {
+                        skipNext = true;
+                    }
+                    
+                    // Track that we played a card 1
+                    lastCardWasOne = true;
+                    
+                    // Reset forced suit when a non-7 card is played
+                    forcedSuit = null;
+                    break;
+                case 2:
+                    // Next player draws 2 cards (or more if they also play a 2)
+                    accumulatedDrawCards += 2;
+                    mustDrawCards = true;
+                    // Reset forced suit when a non-7 card is played
+                    forcedSuit = null;
+                    // Reset lastCardWasOne flag
+                    lastCardWasOne = false;
+                    // Dont advance turn yet - next player needs to either play a 2 or draw cards
+                    shouldAdvanceTurn = false;
+                    advanceTurn(); // Move to next player who must respond to the card 2
+                    return;
+                case 7:
+                    // Wild card - player can change suit
+                    // The forceSuit will be set by the UI
+                    // Do not reset forcedSuit here as it will be set by the UI
+                    
+                    // Reset lastCardWasOne flag
+                    lastCardWasOne = false;
+                    break;
+                default:
+                    // Regular cards
+                    // Reset forced suit when a non-7 card is played
+                    forcedSuit = null;
+                    // Reset lastCardWasOne flag
+                    lastCardWasOne = false;
+                    break;
+            }
+
+            // Advance turn after playing any card (except card 2 which is handled above)
+            if (shouldAdvanceTurn) {
+                advanceTurn();
+            }
+        }
+
+        /**
+         * Handles the special effects of cards after they are played
+         * This method is used when we need to apply card effects separately from playCard
+         * @param card The card whose effects need to be applied
+         */
+        public void handleSpecialCardEffects(Card card) {
             // Special card logic
             boolean shouldAdvanceTurn = true;
 

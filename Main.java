@@ -472,7 +472,7 @@ public class Main {
 
         // Add a sound toggle button
         JToggleButton soundToggle = new JToggleButton("Sound: ON");
-        soundToggle.setBounds(140, 650, 120, 30);
+        soundToggle.setBounds(10, 570, 120, 30);
         soundToggle.setSelected(true);
         soundToggle.addActionListener(e -> {
             boolean enabled = soundToggle.isSelected();
@@ -567,7 +567,7 @@ public class Main {
             } else if (comp instanceof JToggleButton) {
                 JToggleButton toggleButton = (JToggleButton) comp;
                 if (toggleButton.getText().startsWith("Sound:")) {
-                    toggleButton.setBounds(140, height - 50, 120, 30);
+                    toggleButton.setBounds(10, height - 130, 120, 30);
                 }
             }
         }
@@ -684,14 +684,23 @@ public class Main {
                                         // Create animation for playing a card
                                         isAnimating = true;
                                         
-                                        // Create a temporary card for animation
-                                        JLabel tempCard = new JLabel(loadImage(card.getImagePath(), CARD_WIDTH, CARD_HEIGHT));
-                                        tempCard.setSize(CARD_WIDTH, CARD_HEIGHT);
-                                        
+                                        // Get card location BEFORE removing it from the panel
                                         Point cardLocation = cardLabel.getLocationOnScreen();
                                         Point panelLocation = gamePane.getLocationOnScreen();
                                         int startX = cardLocation.x - panelLocation.x;
                                         int startY = cardLocation.y - panelLocation.y;
+                                        
+                                        // Remove the card from player's hand immediately
+                                        player.playCard(card);
+                                        
+                                        // Immediately refresh the UI to remove the card visually
+                                        playerPanel.remove(cardLabel);
+                                        playerPanel.revalidate();
+                                        playerPanel.repaint();
+                                        
+                                        // Create a temporary card for animation
+                                        JLabel tempCard = new JLabel(loadImage(card.getImagePath(), CARD_WIDTH, CARD_HEIGHT));
+                                        tempCard.setSize(CARD_WIDTH, CARD_HEIGHT);
                                         
                                         Point targetPosition = getTopCardPosition();
                                         CardAnimation.animateCard(
@@ -701,8 +710,9 @@ public class Main {
                                             300, // Duration in milliseconds
                                             gamePane,
                                             () -> {
-                                                // Play the card after animation
-                                                game.playCard(card);
+                                                // Update the top card after animation completes
+                                                // Note: We already removed the card from player's hand
+                                                game.setTopCard(card);
                                                 topCardLabel.setIcon(loadImage(game.getTopCard().getImagePath(), CARD_WIDTH, CARD_HEIGHT));
                                                 
                                                 // Play card sound after the animation completes and card is placed
@@ -723,6 +733,9 @@ public class Main {
                                                         suitTypeLabel.setIcon(newSuitIcon);
                                                     }
                                                 }
+                                                
+                                                // Handle special card effects (card 1, card 2)
+                                                game.handleSpecialCardEffects(card);
                                                 
                                                 updateUI();
                                                 checkGameOver();
@@ -891,6 +904,25 @@ public class Main {
                     // Play select card sound
                     soundManager.playSound(SoundManager.SOUND_SELECT_CARD);
                     
+                    // Remove the card from AI's hand immediately
+                    ai.playCard(cardToPlay);
+                    
+                    // Immediately refresh the opponent panel to update card count
+                    opponentPanel.removeAll();
+                    // Re-add the face down cards
+                    for (int j = 0; j < ai.getHand().size(); j++) {
+                        JLabel cardBackLabel = new JLabel(loadImage("Hez/empty.png", CARD_WIDTH, CARD_HEIGHT));
+                        cardBackLabel.setPreferredSize(new Dimension(CARD_WIDTH, CARD_HEIGHT));
+                        opponentPanel.add(cardBackLabel);
+                    }
+                    // Re-add the card count label
+                    JLabel countLabel = new JLabel(ai.getName() + ": " + ai.getHand().size() + " cards");
+                    countLabel.setForeground(Color.WHITE);
+                    countLabel.setFont(new Font("Arial", Font.BOLD, 14));
+                    opponentPanel.add(countLabel);
+                    opponentPanel.revalidate();
+                    opponentPanel.repaint();
+                    
                     // Create a temporary card for animation
                     JLabel tempCard = new JLabel(loadImage(cardToPlay.getImagePath(), CARD_WIDTH, CARD_HEIGHT));
                     tempCard.setSize(CARD_WIDTH, CARD_HEIGHT);
@@ -903,8 +935,9 @@ public class Main {
                         300, // Duration in milliseconds
                         gamePane,
                         () -> {
-                            // Play the card after animation
-                            game.playCard(cardToPlay);
+                            // Update the top card after animation completes
+                            // Note: We already removed the card from AI's hand
+                            game.setTopCard(cardToPlay);
                             topCardLabel.setIcon(loadImage(game.getTopCard().getImagePath(), CARD_WIDTH, CARD_HEIGHT));
                             
                             // Play card sound after the animation completes and card is placed
@@ -932,6 +965,9 @@ public class Main {
                                         JOptionPane.INFORMATION_MESSAGE);
                                 }
                             }
+                            
+                            // Handle special card effects (card 1, card 2)
+                            game.handleSpecialCardEffects(cardToPlay);
                             
                             updateUI();
                             checkGameOver();
