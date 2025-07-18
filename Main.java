@@ -2,6 +2,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.*;
+import java.util.List;
 import java.io.File;
 import java.awt.image.BufferedImage;
 
@@ -20,6 +21,12 @@ public class Main {
     private static javax.swing.Timer aiTimer;
     private static boolean hasShownCard2Rule = false;
     private static SoundManager soundManager;
+    
+    // Multiplayer components
+    private static GameServer gameServer;
+    private static GameClient gameClient;
+    private static boolean isMultiplayer = false;
+    private static boolean isHost = false;
     
     // Constants for card dimensions and positions
     private static final int CARD_WIDTH = 100;
@@ -159,15 +166,20 @@ public class Main {
         aiButton.setForeground(Color.WHITE);
         aiButton.setOpaque(false);
         
-        JRadioButton onlineButton = new JRadioButton("Online Multiplayer");
-        onlineButton.setForeground(Color.WHITE);
-        onlineButton.setOpaque(false);
-        onlineButton.setEnabled(false); // Disabled for now
+        JRadioButton hostButton = new JRadioButton("Host Multiplayer");
+        hostButton.setForeground(Color.WHITE);
+        hostButton.setOpaque(false);
+        
+        JRadioButton joinButton = new JRadioButton("Join Multiplayer");
+        joinButton.setForeground(Color.WHITE);
+        joinButton.setOpaque(false);
         
         modeGroup.add(aiButton);
-        modeGroup.add(onlineButton);
+        modeGroup.add(hostButton);
+        modeGroup.add(joinButton);
         gameModePanel.add(aiButton);
-        gameModePanel.add(onlineButton);
+        gameModePanel.add(hostButton);
+        gameModePanel.add(joinButton);
         
         mainPanel.add(gameModePanel);
         
@@ -187,13 +199,27 @@ public class Main {
         
         mainPanel.add(playerNamePanel);
         
-        // Online multiplayer status (coming soon)
-        JLabel onlineStatusLabel = new JLabel("Online Multiplayer: Under Development");
-        onlineStatusLabel.setForeground(new Color(255, 215, 0)); // Gold color
-        onlineStatusLabel.setFont(new Font("Arial", Font.ITALIC, 14));
-        onlineStatusLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        mainPanel.add(Box.createRigidArea(new Dimension(0, 20)));
-        mainPanel.add(onlineStatusLabel);
+        mainPanel.add(Box.createRigidArea(new Dimension(0, 15)));
+        
+        // Game key panel (for joining games)
+        JPanel gameKeyPanel = new JPanel();
+        gameKeyPanel.setOpaque(false);
+        gameKeyPanel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        
+        JLabel keyLabel = new JLabel("Game Key: ");
+        keyLabel.setForeground(Color.WHITE);
+        gameKeyPanel.add(keyLabel);
+        
+        JTextField gameKeyField = new JTextField(6);
+        gameKeyField.setEnabled(false);
+        gameKeyPanel.add(gameKeyField);
+        
+        mainPanel.add(gameKeyPanel);
+        
+        // Add listeners to enable/disable game key field
+        joinButton.addActionListener(e -> gameKeyField.setEnabled(joinButton.isSelected()));
+        aiButton.addActionListener(e -> gameKeyField.setEnabled(false));
+        hostButton.addActionListener(e -> gameKeyField.setEnabled(false));
         
         mainPanel.add(Box.createRigidArea(new Dimension(0, 30)));
         
@@ -207,28 +233,46 @@ public class Main {
         
         startButton.addActionListener(e -> {
             playerNames.clear();
-            
-            if (onlineButton.isSelected()) {
-                JOptionPane.showMessageDialog(menuFrame, 
-                    "Online multiplayer is currently under development.\nPlease check back later!", 
-                    "Coming Soon", 
-                    JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-            
-            // AI game mode - just one human player
             String playerName = playerNameField.getText().trim();
             if (playerName.isEmpty()) {
                 playerName = "Player 1";
             }
-            playerNames.add(playerName);
-            playerNames.add("AI"); // Placeholder, will be replaced with AIPlayer
             
-            menuFrame.dispose();
-            
-            // Remove start sound from here
-            
-            startGame(true);
+            if (aiButton.isSelected()) {
+                // AI game mode
+                playerNames.add(playerName);
+                playerNames.add("AI");
+                isMultiplayer = false;
+                isHost = false;
+                
+                menuFrame.dispose();
+                startGame(true);
+                
+            } else if (hostButton.isSelected()) {
+                // Host multiplayer game
+                isMultiplayer = true;
+                isHost = true;
+                
+                menuFrame.dispose();
+                startHostGame(playerName);
+                
+            } else if (joinButton.isSelected()) {
+                // Join multiplayer game
+                String gameKey = gameKeyField.getText().trim().toUpperCase();
+                if (gameKey.isEmpty()) {
+                    JOptionPane.showMessageDialog(menuFrame, 
+                        "Please enter a game key to join!", 
+                        "Missing Game Key", 
+                        JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                
+                isMultiplayer = true;
+                isHost = false;
+                
+                menuFrame.dispose();
+                joinMultiplayerGame(playerName, gameKey);
+            }
         });
         
         mainPanel.add(startButton);
@@ -382,26 +426,34 @@ public class Main {
                         gamePane.remove(tempCard);
                         gamePane.repaint();
                         
-                        // Store current player index before drawing cards
-                        int previousPlayerIndex = game.getCurrentPlayerIndex();
-                        
-                        // If there are accumulated cards to draw, use drawCardFromDeck method
-                        if (game.mustDrawCards() && game.getAccumulatedDrawCards() > 0) {
-                            game.drawCardFromDeck();
-                            // Note: drawCardFromDeck will now return turn to the previous player
+                        if (isMultiplayer && !isHost) {
+                            // In multiplayer as client, send draw action to server
+                            drawCardMultiplayer();
+                            isAnimating = false;
                         } else {
-                            // Regular draw - just one card
-                            current.drawCard(game.getDeck());
-                            game.advanceTurn();
-                        }
-                        
-                        updateUI();
-                        checkGameOver();
-                        isAnimating = false;
-                        
-                        // If next player is AI, perform AI turn
-                        if (!game.isGameOver() && game.isCurrentPlayerAI()) {
-                            performAITurn();
+                            // Single player or host - handle locally
+                            
+                            // Store current player index before drawing cards
+                            int previousPlayerIndex = game.getCurrentPlayerIndex();
+                            
+                            // If there are accumulated cards to draw, use drawCardFromDeck method
+                            if (game.mustDrawCards() && game.getAccumulatedDrawCards() > 0) {
+                                game.drawCardFromDeck();
+                                // Note: drawCardFromDeck will now return turn to the previous player
+                            } else {
+                                // Regular draw - just one card
+                                current.drawCard(game.getDeck());
+                                game.advanceTurn();
+                            }
+                            
+                            updateUI();
+                            checkGameOver();
+                            isAnimating = false;
+                            
+                            // If next player is AI, perform AI turn
+                            if (!game.isGameOver() && game.isCurrentPlayerAI()) {
+                                performAITurn();
+                            }
                         }
                     }
                 );
@@ -690,63 +742,76 @@ public class Main {
                                         int startX = cardLocation.x - panelLocation.x;
                                         int startY = cardLocation.y - panelLocation.y;
                                         
-                                        // Remove the card from player's hand immediately
-                                        player.playCard(card);
-                                        
-                                        // Immediately refresh the UI to remove the card visually
-                                        playerPanel.remove(cardLabel);
-                                        playerPanel.revalidate();
-                                        playerPanel.repaint();
-                                        
-                                        // Create a temporary card for animation
-                                        JLabel tempCard = new JLabel(loadImage(card.getImagePath(), CARD_WIDTH, CARD_HEIGHT));
-                                        tempCard.setSize(CARD_WIDTH, CARD_HEIGHT);
-                                        
-                                        Point targetPosition = getTopCardPosition();
-                                        CardAnimation.animateCard(
-                                            tempCard,
-                                            startX, startY,
-                                            targetPosition.x, targetPosition.y,
-                                            300, // Duration in milliseconds
-                                            gamePane,
-                                            () -> {
-                                                // Update the top card after animation completes
-                                                // Note: We already removed the card from player's hand
-                                                game.setTopCard(card);
-                                                topCardLabel.setIcon(loadImage(game.getTopCard().getImagePath(), CARD_WIDTH, CARD_HEIGHT));
-                                                
-                                                // Play card sound after the animation completes and card is placed
-                                                soundManager.playSound(SoundManager.SOUND_PLAY_CARD);
-                                                
-                                                // Handle wild card (7)
-                                                if (card.getValue() == 7 && !player.getHand().isEmpty()) {
-                                                    Card.Suit selectedSuit = promptSuitChoice();
-                                                    if (selectedSuit != null) {
-                                                        // Play type change sound
-                                                        soundManager.playSound(SoundManager.SOUND_TYPE_CHANGE);
-                                                        
-                                                        game.setForcedSuit(selectedSuit);
-                                                        
-                                                        // Update suit type display
-                                                        String newSuitPath = "Hez/type/" + selectedSuit.name().toLowerCase() + ".png";
-                                                        ImageIcon newSuitIcon = loadImage(newSuitPath, 60, 60);
-                                                        suitTypeLabel.setIcon(newSuitIcon);
+                                        if (isMultiplayer && !isHost) {
+                                            // In multiplayer as client, send move to server
+                                            playCardMultiplayer(card);
+                                            isAnimating = false;
+                                        } else {
+                                            // Single player or host - handle locally
+                                            
+                                            // Remove the card from player's hand immediately
+                                            player.playCard(card);
+                                            
+                                            // Immediately refresh the UI to remove the card visually
+                                            playerPanel.remove(cardLabel);
+                                            playerPanel.revalidate();
+                                            playerPanel.repaint();
+                                            
+                                            // Create a temporary card for animation
+                                            JLabel tempCard = new JLabel(loadImage(card.getImagePath(), CARD_WIDTH, CARD_HEIGHT));
+                                            tempCard.setSize(CARD_WIDTH, CARD_HEIGHT);
+                                            
+                                            Point targetPosition = getTopCardPosition();
+                                            CardAnimation.animateCard(
+                                                tempCard,
+                                                startX, startY,
+                                                targetPosition.x, targetPosition.y,
+                                                300, // Duration in milliseconds
+                                                gamePane,
+                                                () -> {
+                                                    // Update the top card after animation completes
+                                                    // Note: We already removed the card from player's hand
+                                                    game.setTopCard(card);
+                                                    topCardLabel.setIcon(loadImage(game.getTopCard().getImagePath(), CARD_WIDTH, CARD_HEIGHT));
+                                                    
+                                                    // Play card sound after the animation completes and card is placed
+                                                    soundManager.playSound(SoundManager.SOUND_PLAY_CARD);
+                                                    
+                                                    // Handle wild card (7)
+                                                    if (card.getValue() == 7 && !player.getHand().isEmpty()) {
+                                                        Card.Suit selectedSuit = promptSuitChoice();
+                                                        if (selectedSuit != null) {
+                                                            // Play type change sound
+                                                            soundManager.playSound(SoundManager.SOUND_TYPE_CHANGE);
+                                                            
+                                                            game.setForcedSuit(selectedSuit);
+                                                            
+                                                            // Update suit type display
+                                                            String newSuitPath = "Hez/type/" + selectedSuit.name().toLowerCase() + ".png";
+                                                            ImageIcon newSuitIcon = loadImage(newSuitPath, 60, 60);
+                                                            suitTypeLabel.setIcon(newSuitIcon);
+                                                            
+                                                            // Send suit choice to clients if hosting
+                                                            if (isMultiplayer && isHost) {
+                                                                chooseSuitMultiplayer(selectedSuit);
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    // Handle special card effects (card 1, card 2)
+                                                    game.handleSpecialCardEffects(card);
+                                                    
+                                                    updateUI();
+                                                    checkGameOver();
+                                                    isAnimating = false;
+                                                    
+                                                    // If next player is AI, perform AI turn
+                                                    if (!game.isGameOver() && game.isCurrentPlayerAI()) {
+                                                        performAITurn();
                                                     }
                                                 }
-                                                
-                                                // Handle special card effects (card 1, card 2)
-                                                game.handleSpecialCardEffects(card);
-                                                
-                                                updateUI();
-                                                checkGameOver();
-                                                isAnimating = false;
-                                                
-                                                // If next player is AI, perform AI turn
-                                                if (!game.isGameOver() && game.isCurrentPlayerAI()) {
-                                                    performAITurn();
-                                                }
-                                            }
-                                        );
+                                            );
+                                        }
                                     } else {
                                         // Play error sound instead of showing warning
                                         soundManager.playSound(SoundManager.SOUND_ERROR);
@@ -1032,29 +1097,41 @@ public class Main {
         if (game.isGameOver()) {
             Player winner = game.getWinner();
             
-            // Play win/lose sound based on who won
-            if (winner instanceof AIPlayer) {
-                soundManager.playSound(SoundManager.SOUND_LOSE);
+            if (isMultiplayer) {
+                // In multiplayer, the server will handle game over notifications
+                if (isHost) {
+                    // Host broadcasts game over to all clients
+                    if (gameServer != null) {
+                        gameServer.broadcastMessage(new NetworkMessage(NetworkMessage.MessageType.GAME_OVER, winner.getName()));
+                    }
+                }
+                // The game over dialog will be shown when we receive the network message
             } else {
-                soundManager.playSound(SoundManager.SOUND_WIN);
-            }
-            
-            JOptionPane.showMessageDialog(frame, 
-                winner.getName() + " wins the game!", 
-                "Game Over", 
-                JOptionPane.INFORMATION_MESSAGE);
-            
-            int option = JOptionPane.showConfirmDialog(frame, 
-                "Do you want to play again?", 
-                "Play Again", 
-                JOptionPane.YES_NO_OPTION);
+                // Single player game
+                // Play win/lose sound based on who won
+                if (winner instanceof AIPlayer) {
+                    soundManager.playSound(SoundManager.SOUND_LOSE);
+                } else {
+                    soundManager.playSound(SoundManager.SOUND_WIN);
+                }
                 
-            if (option == JOptionPane.YES_OPTION) {
-                frame.dispose();
-                startGame(true); // Always start with AI mode
-            } else {
-                frame.dispose();
-                showStartMenu();
+                JOptionPane.showMessageDialog(frame, 
+                    winner.getName() + " wins the game!", 
+                    "Game Over", 
+                    JOptionPane.INFORMATION_MESSAGE);
+                
+                int option = JOptionPane.showConfirmDialog(frame, 
+                    "Do you want to play again?", 
+                    "Play Again", 
+                    JOptionPane.YES_NO_OPTION);
+                    
+                if (option == JOptionPane.YES_OPTION) {
+                    frame.dispose();
+                    startGame(true); // Always start with AI mode
+                } else {
+                    frame.dispose();
+                    showStartMenu();
+                }
             }
         }
     }
@@ -1156,5 +1233,363 @@ public class Main {
         
         rulesDialog.add(containerPanel);
         rulesDialog.setVisible(true);
+    }
+    
+    /**
+     * Start hosting a multiplayer game
+     */
+    private static void startHostGame(String hostPlayerName) {
+        try {
+            gameServer = new GameServer();
+            
+            // Show waiting dialog with game key
+            JDialog waitingDialog = new JDialog();
+            waitingDialog.setTitle("Hosting Game");
+            waitingDialog.setModal(false);
+            waitingDialog.setSize(400, 200);
+            waitingDialog.setLocationRelativeTo(null);
+            waitingDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+            
+            JPanel panel = new JPanel(new BorderLayout());
+            panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+            
+            JLabel titleLabel = new JLabel("Waiting for player to join...", JLabel.CENTER);
+            titleLabel.setFont(new Font("Arial", Font.BOLD, 16));
+            panel.add(titleLabel, BorderLayout.NORTH);
+            
+            JLabel keyLabel = new JLabel("Game Key: " + gameServer.getGameKey(), JLabel.CENTER);
+            keyLabel.setFont(new Font("Arial", Font.BOLD, 24));
+            keyLabel.setForeground(new Color(0, 100, 0));
+            panel.add(keyLabel, BorderLayout.CENTER);
+            
+            JButton cancelButton = new JButton("Cancel");
+            cancelButton.addActionListener(e -> {
+                if (gameServer != null) {
+                    gameServer.stop();
+                }
+                waitingDialog.dispose();
+                showStartMenu();
+            });
+            panel.add(cancelButton, BorderLayout.SOUTH);
+            
+            waitingDialog.add(panel);
+            waitingDialog.setVisible(true);
+            
+            // Start server in background thread
+            new Thread(() -> {
+                try {
+                    gameServer.start(hostPlayerName);
+                    
+                    // Wait for game to start
+                    while (!gameServer.isGameStarted()) {
+                        Thread.sleep(100);
+                    }
+                    
+                    // Game started, close waiting dialog and start game
+                    SwingUtilities.invokeLater(() -> {
+                        waitingDialog.dispose();
+                        playerNames.clear();
+                        playerNames.addAll(gameServer.getPlayerNames());
+                        game = gameServer.getGame();
+                        createAndShowGUI();
+                    });
+                    
+                } catch (Exception e) {
+                    SwingUtilities.invokeLater(() -> {
+                        waitingDialog.dispose();
+                        JOptionPane.showMessageDialog(null, 
+                            "Failed to start server: " + e.getMessage(), 
+                            "Server Error", 
+                            JOptionPane.ERROR_MESSAGE);
+                        showStartMenu();
+                    });
+                }
+            }).start();
+            
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(null, 
+                "Failed to create server: " + e.getMessage(), 
+                "Server Error", 
+                JOptionPane.ERROR_MESSAGE);
+            showStartMenu();
+        }
+    }
+    
+    /**
+     * Join a multiplayer game
+     */
+    private static void joinMultiplayerGame(String playerName, String gameKey) {
+        gameClient = new GameClient();
+        
+        // Show connecting dialog
+        JDialog connectingDialog = new JDialog();
+        connectingDialog.setTitle("Connecting");
+        connectingDialog.setModal(true);
+        connectingDialog.setSize(300, 150);
+        connectingDialog.setLocationRelativeTo(null);
+        connectingDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        
+        JLabel label = new JLabel("Connecting to game...", JLabel.CENTER);
+        panel.add(label, BorderLayout.CENTER);
+        
+        JButton cancelButton = new JButton("Cancel");
+        cancelButton.addActionListener(e -> {
+            if (gameClient != null) {
+                gameClient.disconnect();
+            }
+            connectingDialog.dispose();
+            showStartMenu();
+        });
+        panel.add(cancelButton, BorderLayout.SOUTH);
+        
+        connectingDialog.add(panel);
+        
+        // Connect in background thread
+        new Thread(() -> {
+            boolean connected = gameClient.connect(gameKey, playerName, Main::handleNetworkMessage);
+            
+            SwingUtilities.invokeLater(() -> {
+                connectingDialog.dispose();
+                
+                if (connected) {
+                    // Show waiting for game start dialog
+                    showWaitingForGameDialog();
+                } else {
+                    JOptionPane.showMessageDialog(null, 
+                        "Failed to connect to game. Check the game key and try again.", 
+                        "Connection Failed", 
+                        JOptionPane.ERROR_MESSAGE);
+                    showStartMenu();
+                }
+            });
+        }).start();
+        
+        connectingDialog.setVisible(true);
+    }
+    
+    /**
+     * Show waiting for game start dialog
+     */
+    private static void showWaitingForGameDialog() {
+        JDialog waitingDialog = new JDialog();
+        waitingDialog.setTitle("Waiting for Game");
+        waitingDialog.setModal(false);
+        waitingDialog.setSize(300, 150);
+        waitingDialog.setLocationRelativeTo(null);
+        waitingDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        
+        JLabel label = new JLabel("Waiting for game to start...", JLabel.CENTER);
+        panel.add(label, BorderLayout.CENTER);
+        
+        JButton cancelButton = new JButton("Disconnect");
+        cancelButton.addActionListener(e -> {
+            if (gameClient != null) {
+                gameClient.disconnect();
+            }
+            waitingDialog.dispose();
+            showStartMenu();
+        });
+        panel.add(cancelButton, BorderLayout.SOUTH);
+        
+        waitingDialog.add(panel);
+        waitingDialog.setVisible(true);
+        
+        // Store reference to close later (removed putClientProperty as it's not needed)
+    }
+    
+    /**
+     * Handle network messages from server
+     */
+    private static void handleNetworkMessage(NetworkMessage message) {
+        switch (message.getType()) {
+            case GAME_START:
+                // Game is starting
+                @SuppressWarnings("unchecked")
+                List<String> players = (List<String>) message.getData();
+                playerNames.clear();
+                playerNames.addAll(players);
+                
+                // Close any waiting dialogs
+                Window[] windows = Window.getWindows();
+                for (Window window : windows) {
+                    if (window instanceof JDialog) {
+                        JDialog dialog = (JDialog) window;
+                        if ("Waiting for Game".equals(dialog.getTitle())) {
+                            dialog.dispose();
+                        }
+                    }
+                }
+                
+                // Create game and UI
+                game = new Game(playerNames, false); // No AI for multiplayer
+                createAndShowGUI();
+                break;
+                
+            case GAME_STATE_UPDATE:
+                // Update game state
+                GameServer.GameStateData gameState = (GameServer.GameStateData) message.getData();
+                updateGameFromNetworkState(gameState);
+                updateUI();
+                break;
+                
+            case GAME_OVER:
+                String winner = (String) message.getData();
+                showGameOverDialog(winner);
+                break;
+                
+            case PLAYER_DISCONNECTED:
+                String disconnectedPlayer = (String) message.getData();
+                JOptionPane.showMessageDialog(frame, 
+                    disconnectedPlayer + " has disconnected. Game ended.", 
+                    "Player Disconnected", 
+                    JOptionPane.INFORMATION_MESSAGE);
+                
+                // Return to menu
+                if (frame != null) {
+                    frame.dispose();
+                }
+                showStartMenu();
+                break;
+                
+            case INVALID_MOVE:
+                String error = (String) message.getData();
+                soundManager.playSound(SoundManager.SOUND_ERROR);
+                JOptionPane.showMessageDialog(frame, 
+                    "Invalid move: " + error, 
+                    "Invalid Move", 
+                    JOptionPane.WARNING_MESSAGE);
+                break;
+                
+            case ERROR:
+                String errorMsg = (String) message.getData();
+                JOptionPane.showMessageDialog(frame, 
+                    "Error: " + errorMsg, 
+                    "Game Error", 
+                    JOptionPane.ERROR_MESSAGE);
+                break;
+        }
+    }
+    
+    /**
+     * Update local game state from network message
+     */
+    private static void updateGameFromNetworkState(GameServer.GameStateData gameState) {
+        if (game == null) return;
+        
+        // Update game state
+        game.setTopCard(gameState.topCard);
+        game.setForcedSuit(gameState.forcedSuit);
+        
+        // Update players' hands
+        for (int i = 0; i < gameState.players.size() && i < game.getPlayers().size(); i++) {
+            Player networkPlayer = gameState.players.get(i);
+            Player localPlayer = game.getPlayers().get(i);
+            
+            // Update hand
+            localPlayer.getHand().clear();
+            localPlayer.getHand().addAll(networkPlayer.getHand());
+        }
+        
+        // Set current player
+        game.setCurrentPlayerIndex(gameState.currentPlayerIndex);
+        
+        // Update other game state
+        game.setMustDrawCards(gameState.mustDrawCards);
+        game.setAccumulatedDrawCards(gameState.accumulatedDrawCards);
+        game.setLastCardWasOne(gameState.lastCardWasOne);
+    }
+    
+    /**
+     * Handle multiplayer card play
+     */
+    private static void playCardMultiplayer(Card card) {
+        if (gameClient != null && gameClient.isConnected()) {
+            gameClient.playCard(card);
+        }
+    }
+    
+    /**
+     * Handle multiplayer card draw
+     */
+    private static void drawCardMultiplayer() {
+        if (gameClient != null && gameClient.isConnected()) {
+            gameClient.drawCard();
+        }
+    }
+    
+    /**
+     * Handle multiplayer suit choice
+     */
+    private static void chooseSuitMultiplayer(Card.Suit suit) {
+        if (gameClient != null && gameClient.isConnected()) {
+            gameClient.chooseSuit(suit);
+        }
+    }
+    
+    /**
+     * Show game over dialog
+     */
+    private static void showGameOverDialog(String winner) {
+        String message = winner + " wins the game!";
+        
+        // Play appropriate sound
+        if (isMultiplayer && !isHost) {
+            // For clients, check if they won
+            if (winner.equals(gameClient.getPlayerName())) {
+                soundManager.playSound(SoundManager.SOUND_WIN);
+            } else {
+                soundManager.playSound(SoundManager.SOUND_LOSE);
+            }
+        } else {
+            // For host or single player
+            soundManager.playSound(SoundManager.SOUND_WIN);
+        }
+        
+        int choice = JOptionPane.showOptionDialog(frame,
+            message + "\n\nWhat would you like to do?",
+            "Game Over",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.INFORMATION_MESSAGE,
+            null,
+            new String[]{"Play Again", "Main Menu"},
+            "Play Again");
+        
+        if (choice == 0) {
+            // Play again - return to menu for now
+            if (frame != null) {
+                frame.dispose();
+            }
+            
+            // Disconnect from multiplayer
+            if (gameClient != null) {
+                gameClient.disconnect();
+            }
+            if (gameServer != null) {
+                gameServer.stop();
+            }
+            
+            showStartMenu();
+        } else {
+            // Main menu
+            if (frame != null) {
+                frame.dispose();
+            }
+            
+            // Disconnect from multiplayer
+            if (gameClient != null) {
+                gameClient.disconnect();
+            }
+            if (gameServer != null) {
+                gameServer.stop();
+            }
+            
+            showStartMenu();
+        }
     }
 }

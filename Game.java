@@ -359,4 +359,34 @@ public class Game {
             }
             return null;
         }
+    
+    // Additional methods for multiplayer support
+    
+    /**
+     * Set the current player index (for network synchronization)
+     */
+    public void setCurrentPlayerIndex(int index) {
+        this.currentPlayerIndex = index;
+    }
+    
+    /**
+     * Set whether cards must be drawn (for network synchronization)
+     */
+    public void setMustDrawCards(boolean mustDraw) {
+        this.mustDrawCards = mustDraw;
+    }
+    
+    /**
+     * Set accumulated draw cards count (for network synchronization)
+     */
+    public void setAccumulatedDrawCards(int count) {
+        this.accumulatedDrawCards = count;
+    }
+    
+    /**
+     * Set last card was one flag (for network synchronization)
+     */
+    public void setLastCardWasOne(boolean wasOne) {
+        this.lastCardWasOne = wasOne;
+    }
 }
